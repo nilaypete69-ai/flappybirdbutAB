@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flappy Bird — Single File (Custom Textures + Audio Only)</title>
+  <style>
+    :root { --ink:#0f172a; --ink2:#334155; --surface:#ffffff; --border:#e5e7eb; --soft:#f8fafc; --brand:#2563eb; --danger:#ef4444; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:linear-gradient(180deg,#f8fafc 0%,#eef2ff 100%);display:flex}
+    .wrap{margin:auto;display:grid;gap:14px;max-width:980px;width:100%;padding:16px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:0 10px 24px rgba(2,6,23,.06);padding:14px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    label.up{display:inline-flex;align-items:center;gap:8px;border:1px dashed #cbd5e1;border-radius:12px;padding:8px 10px;background:var(--soft);cursor:pointer}
+    input[type=file]{display:none}
+    button{appearance:none;border:0;border-radius:12px;padding:10px 14px;font-weight:600;cursor:pointer;background:var(--brand);color:white}
+    button.secondary{background:#e2e8f0;color:var(--ink)}
+    button.ghost{background:transparent;border:1px solid var(--border);color:var(--ink)}
+    button.danger{background:var(--danger)}
+    .pill{padding:6px 10px;border-radius:999px;background:#f1f5f9;border:1px solid #e5e7eb}
+
+    .stage{position:relative;display:grid;justify-items:center}
+    canvas{width:420px;height:560px;border-radius:16px;border:1px solid #e5e7eb;background:#000; /* stays black until a background texture is provided */}
+    @media (max-width:480px){ canvas{width:92vw;height:auto} }
+
+    .overlay{position:absolute;inset:8px;display:none;align-items:center;justify-content:center}
+    .panel{background:rgba(15,23,42,.72);backdrop-filter:blur(4px);color:#fff;border-radius:16px;padding:16px 18px;max-width:90%;text-align:center}
+    .panel h2{margin:4px 0 8px 0;font-size:18px}
+    .panel p{margin:0 0 10px 0;font-size:14px;color:#e2e8f0}
+    .panel .actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+
+    .hud{position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:center;pointer-events:none}
+    .hud .score{background:rgba(0,0,0,.55);color:#fff;border-radius:999px;padding:6px 10px;font-weight:700;pointer-events:none;display:none}
+
+    .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .vol{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:12px;background:#f1f5f9;border:1px solid #e5e7eb}
+    .vol input[type=range]{width:160px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <strong>Flappy Bird — Single File (Server-Hosted Assets)</strong>
+        <div class="pill" id="status">Loading server assets…</div>
+      </div>
+      <div class="row controls">
+        <!-- No upload inputs. Assets are loaded from your server paths set in JS below. -->
+        <span style="font-size:12px;color:#334155">Set your asset URLs in the <code>ASSETS</code> object (JS) and deploy alongside this file.</span>
+        <span class="vol">
+          <button id="muteBtn" class="ghost" style="pointer-events:auto">🔇 Mute</button>
+          <input id="volume" type="range" min="0" max="100" value="80" />
+          <span id="volLabel">80%</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="card stage">
+      <canvas id="game" width="320" height="448" aria-label="Flappy game"></canvas>
+
+      <!-- HUD (score) -->
+      <div class="hud">
+        <div class="score" id="scoreHud">0</div>
+      </div>
+
+      <!-- Start overlay -->
+      <div class="overlay" id="startOv">
+        <div class="panel">
+          <h2>Ready to Play</h2>
+          <p>Upload <em>bird, pipe, background, ground</em> textures. Audio is optional.</p>
+          <div class="actions">
+            <button id="playBtn">▶️ Play</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Game Over overlay -->
+      <div class="overlay" id="overOv">
+        <div class="panel">
+          <h2>Game Over</h2>
+          <p>Your score: <strong id="finalScore">0</strong></p>
+          <div class="actions">
+            <button id="restartBtn">↻ Restart</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="font-size:12px;color:var(--ink2)">
+      Notes: This build follows strict rules — <strong>no default graphics or sounds</strong>. The canvas stays black and silent until you provide textures/audio. Assets are used locally via <code>URL.createObjectURL</code>; no network access needed.
+    </div>
+  </div>
+
+<script>
+(() => {
+  // ===== Short helpers =====
+  const $ = sel => document.querySelector(sel);
+  const statusEl = $('#status');
+  const canvas = $('#game');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const W = canvas.width, H = canvas.height;
+
+  function status(msg, warn=false){
+    statusEl.textContent = msg;
+    statusEl.style.background = warn ? '#fee2e2' : '#f1f5f9';
+    statusEl.style.color = warn ? '#b91c1c' : '#0f172a';
+  }
+
+  // ===== Persistent audio preferences =====
+  const LS_MUTE = 'fb_mute';
+  const LS_VOL = 'fb_volume';
+  let masterVolume = Number(localStorage.getItem(LS_VOL) ?? 0.8);
+  if (isNaN(masterVolume)) masterVolume = 0.8;
+  let isMuted = (localStorage.getItem(LS_MUTE) === '1');
+
+  $('#volume').value = Math.round(masterVolume*100);
+  $('#volLabel').textContent = `${Math.round(masterVolume*100)}%`;
+  $('#muteBtn').textContent = isMuted ? '🔊 Unmute' : '🔇 Mute';
+
+  // ===== Asset URLs (configure these to your server paths) =====
+  // Example directory structure:
+  //   /assets/bird.png, /assets/pipe.png, /assets/bg.png, /assets/ground.png
+  //   /assets/bgm.mp3, /assets/gameover.mp3
+  const ASSETS = {
+    bird:   'assets/bird.png',     // REQUIRED
+    pipe:   'assets/pipe.png',     // REQUIRED
+    bg:     'assets/bg.png',       // REQUIRED
+    ground: 'assets/ground.png',   // REQUIRED
+    bgm:    'assets/bgm.mp3',      // OPTIONAL but recommended
+    sfxOver:'assets/gameover.mp3'  // OPTIONAL but recommended
+  };
+
+  // ===== Asset storage =====
+  const assets = { bird:null, pipe:null, bg:null, ground:null, bgm:null, sfxOver:null };
+
+  function loadImage(url, key){
+    return new Promise((res, rej)=>{
+      const img = new Image();
+      img.onload = ()=>{ assets[key]=img; res(img); };
+      img.onerror = ()=>rej(new Error('Failed to load '+key+' @ '+url));
+      img.src = url;
+    });
+  }
+  function loadAudio(url, key, loop=false){
+    return new Promise((res, rej)=>{
+      const a = new Audio(url);
+      a.preload='auto'; a.loop=loop; a.volume = isMuted ? 0 : masterVolume;
+      a.onloadeddata = ()=>{ assets[key]=a; res(a); };
+      a.onerror = ()=>rej(new Error('Failed to load '+key+' @ '+url));
+    });
+  }
+
+  // Kick off parallel loads
+  Promise.all([
+    loadImage(ASSETS.bird,'bird'),
+    loadImage(ASSETS.pipe,'pipe'),
+    loadImage(ASSETS.bg,'bg'),
+    loadImage(ASSETS.ground,'ground'),
+  ].concat([
+    ASSETS.bgm ? loadAudio(ASSETS.bgm,'bgm',true) : Promise.resolve(),
+    ASSETS.sfxOver ? loadAudio(ASSETS.sfxOver,'sfxOver',false) : Promise.resolve()
+  ])).then(()=>{
+    status('Assets loaded. Press Play to start.');
+    checkReady();
+  }).catch(err=>{
+    console.error(err);
+    status(err.message, true);
+  });
+
+  // No upload inputs in this build.
+
+  $('#birdFile').addEventListener('change', e=>loadImageFromFile(e.target,'bird'));
+  $('#pipeFile').addEventListener('change', e=>loadImageFromFile(e.target,'pipe'));
+  $('#bgFile').addEventListener('change',   e=>loadImageFromFile(e.target,'bg'));
+  $('#groundFile').addEventListener('change', e=>loadImageFromFile(e.target,'ground'));
+  $('#bgmFile').addEventListener('change', e=>loadAudioFromFile(e.target,'bgm'));
+  $('#sfxOverFile').addEventListener('change', e=>loadAudioFromFile(e.target,'sfxOver'));
+
+  $('#clearBtn').addEventListener('click', () => {
+    Object.keys(assets).forEach(k=>assets[k]=null);
+    status('Cleared assets');
+    stopAudio(true);
+    showStart();
+  });
+
+  // Volume + mute
+  $('#volume').addEventListener('input', e=>{
+    masterVolume = Number(e.target.value)/100;
+    localStorage.setItem(LS_VOL, String(masterVolume));
+    $('#volLabel').textContent = `${Math.round(masterVolume*100)}%`;
+    applyVolume();
+  });
+  $('#muteBtn').addEventListener('click', ()=>{
+    isMuted = !isMuted;
+    localStorage.setItem(LS_MUTE, isMuted ? '1' : '0');
+    $('#muteBtn').textContent = isMuted ? '🔊 Unmute' : '🔇 Mute';
+    applyVolume();
+  });
+  function applyVolume(){
+    const vol = isMuted ? 0 : masterVolume;
+    if(assets.bgm) assets.bgm.volume = vol;
+    if(assets.sfxOver) assets.sfxOver.volume = vol;
+  }
+
+  // ===== Game state =====
+  const GROUND_H = 64;        // ground height in pixels on canvas
+  const PIPE_W = 52;          // draw width for pipe
+  const PIPE_GAP = 92;        // vertical gap
+  const SCROLL_SPEED = 1.9;   // pipe/ground scroll speed (px/frame @ ~60fps)
+  const GRAVITY = 0.28;
+  const FLAP = -5.2;
+
+  let state = null;
+  function makeState(){
+    return {
+      bird: { x: 64, y: H/2-20, vy: 0, r: 0, w: 28, h: 20 },
+      pipes: [],
+      groundX: 0,
+      score: 0,
+      started: false,
+      dead: false,
+      spawnTimer: 0,
+      best: Number(localStorage.getItem('fb_best')||0)
+    };
+  }
+
+  function resetGame(){
+    state = makeState();
+    $('#scoreHud').style.display = 'none';
+    drawBlank();
+  }
+
+  // ===== UI overlays =====
+  const startOv = $('#startOv');
+  const overOv = $('#overOv');
+  const playBtn = $('#playBtn');
+  const restartBtn = $('#restartBtn');
+
+  function checkReady(){
+    const ready = !!(assets.bird && assets.pipe && assets.bg && assets.ground);
+    playBtn.disabled = !ready;
+    playBtn.textContent = ready ? '▶️ Play' : 'Missing required textures on server';
+    status(ready ? 'Textures ready. Press Play to start.' : 'Missing required textures (bird, pipe, background, ground).', !ready);
+  }
+
+  function showStart(){
+    stopAudio(true);
+    overOv.style.display = 'none';
+    startOv.style.display = 'flex';
+    $('#scoreHud').style.display = 'none';
+  }
+
+  function showOver(){
+    $('#finalScore').textContent = String(state.score);
+    overOv.style.display = 'flex';
+    $('#scoreHud').style.display = 'none';
+  }
+
+  function hideOverlays(){
+    startOv.style.display = 'none';
+    overOv.style.display = 'none';
+  }
+
+  // ===== Audio control =====
+  let fadeHandle = null;
+  function stopAudio(immediate=false){
+    if(fadeHandle) cancelAnimationFrame(fadeHandle), fadeHandle=null;
+    if(assets.bgm){
+      if(immediate){ assets.bgm.pause(); assets.bgm.currentTime = 0; }
+      else { assets.bgm.pause(); }
+    }
+  }
+  function playBgm(){
+    if(!assets.bgm) return;
+    applyVolume();
+    assets.bgm.currentTime = 0;
+    assets.bgm.loop = true;
+    assets.bgm.play().catch(()=>{});
+  }
+  function fadeOutBgm(maxMs = 800){
+    if(!assets.bgm) return Promise.resolve();
+    if(fadeHandle) cancelAnimationFrame(fadeHandle);
+    const start = performance.now();
+    const startVol = assets.bgm.volume;
+    return new Promise(res=>{
+      const step = (t)=>{
+        const k = Math.min(1, (t - start)/maxMs);
+        const vol = startVol * (1 - k);
+        assets.bgm.volume = vol;
+        if(k < 1){ fadeHandle = requestAnimationFrame(step); }
+        else { assets.bgm.pause(); assets.bgm.currentTime = 0; applyVolume(); res(); }
+      };
+      fadeHandle = requestAnimationFrame(step);
+    });
+  }
+  function playOverSfx(){ if(assets.sfxOver){ applyVolume(); try{ assets.sfxOver.currentTime = 0; assets.sfxOver.play(); }catch{} } }
+
+  // ===== Game mechanics =====
+  function spawnPipes(){
+    const marginTop = 24, marginBottom = 24;
+    const maxTop = H - GROUND_H - PIPE_GAP - marginBottom;
+    const top = Math.floor(Math.random() * (maxTop - marginTop) + marginTop);
+    state.pipes.push({ x: W + 10, top, passed:false });
+  }
+
+  function flap(){ if(state && state.started && !state.dead){ state.bird.vy = FLAP; } }
+
+  // Input
+  window.addEventListener('keydown', e=>{
+    if(e.code==='Space' || e.code==='ArrowUp'){ e.preventDefault(); flap(); }
+  });
+  canvas.addEventListener('pointerdown', flap);
+
+  // Loop
+  let last=0, acc=0;
+  function loop(ts){
+    const dt = Math.min(32, ts - last || 16);
+    last = ts; acc += dt;
+    while(acc >= 16){ update(16/1000); acc -= 16; }
+    draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  function startGame(){
+    resetGame();
+    hideOverlays();
+    state.started = true;
+    $('#scoreHud').style.display = 'inline-flex';
+    if(assets.bgm) playBgm();
+  }
+
+  function gameOver(){
+    state.dead = true;
+    // Stop bgm first (fade or stop), then play over sfx
+    fadeOutBgm(800).then(()=>{ playOverSfx(); });
+    showOver();
+    // Best score update (kept minimal UI only, no graphics)
+    localStorage.setItem('fb_best', String(Math.max(state.best, state.score)));
+  }
+
+  playBtn.addEventListener('click', ()=>{
+    if(!(assets.bird && assets.pipe && assets.bg && assets.ground)){
+      status('Please upload all textures first.', true); return; }
+    startGame();
+  });
+  restartBtn.addEventListener('click', ()=>{
+    startGame();
+  });
+
+  function update(dt){
+    if(!state || !state.started || state.dead) return;
+
+    // Spawn pipes ~1.45s
+    state.spawnTimer += dt*1000;
+    if(state.spawnTimer > 1450){ state.spawnTimer = 0; spawnPipes(); }
+
+    // Bird physics
+    state.bird.vy += GRAVITY;
+    state.bird.y += state.bird.vy;
+    state.bird.r = Math.atan2(state.bird.vy, 8);
+
+    // Scroll ground & pipes
+    state.groundX = (state.groundX - SCROLL_SPEED) % W;
+    for(const p of state.pipes){ p.x -= SCROLL_SPEED; }
+    state.pipes = state.pipes.filter(p => p.x > -PIPE_W-10);
+
+    // Scoring + collisions
+    for(const p of state.pipes){
+      const gapTop = p.top;
+      const gapBottom = p.top + PIPE_GAP;
+      const bx = state.bird.x, by = state.bird.y, bw = state.bird.w, bh = state.bird.h;
+      // pass
+      if(!p.passed && p.x + PIPE_W < bx){ p.passed = true; state.score++; $('#scoreHud').textContent = String(state.score); }
+      // collide with top/bottom pipe
+      if(rectsOverlap(bx,by,bw,bh, p.x,0,PIPE_W,gapTop) || rectsOverlap(bx,by,bw,bh, p.x,gapBottom,PIPE_W,H-GROUND_H-gapBottom)){
+        gameOver();
+      }
+    }
+
+    // Floor/Ceiling
+    if(state.bird.y < 0){ state.bird.y = 0; state.bird.vy = 0; }
+    if(state.bird.y + state.bird.h > H - GROUND_H){
+      state.bird.y = H - GROUND_H - state.bird.h; gameOver();
+    }
+  }
+
+  function rectsOverlap(ax,ay,aw,ah, bx,by,bw,bh){
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
+  // ===== Rendering (uses ONLY provided textures; no placeholders) =====
+  function draw(){
+    if(!state){ drawBlank(); return; }
+
+    // If any of the required textures are missing, keep canvas black and skip drawing.
+    if(!(assets.bg && assets.ground && assets.pipe && assets.bird)){
+      drawBlank();
+      return;
+    }
+
+    // Background (tile image to fill)
+    const bg = assets.bg; const gw = assets.ground.width, gh = assets.ground.height;
+    for(let x=0;x<W;x+=bg.width){ for(let y=0;y<H-GROUND_H;y+=bg.height){ ctx.drawImage(bg,x,y,bg.width,bg.height); } }
+
+    // Pipes
+    for(const p of state.pipes){
+      // top (flip vertically by scaling)
+      drawPipeImage(p.x, p.top, true);
+      // bottom
+      drawPipeImage(p.x, H - GROUND_H - (H - GROUND_H - (p.top + PIPE_GAP)), false, H - GROUND_H - (p.top + PIPE_GAP));
+    }
+
+    // Bird
+    ctx.save();
+    ctx.translate(state.bird.x + state.bird.w/2, state.bird.y + state.bird.h/2);
+    ctx.rotate(state.bird.r);
+    ctx.drawImage(assets.bird, -state.bird.w/2, -state.bird.h/2, state.bird.w, state.bird.h);
+    ctx.restore();
+
+    // Ground (tile along X)
+    const groundY = H - GROUND_H;
+    for(let x = state.groundX; x < W + gw; x += gw){
+      ctx.drawImage(assets.ground, x, groundY, gw, Math.min(gh, GROUND_H));
+    }
+  }
+
+  function drawPipeImage(x, topHeight, flip=false, bottomHeight=topHeight){
+    const img = assets.pipe; if(!img) return;
+    const targetH = flip ? topHeight : (H - GROUND_H - (bottomHeight));
+    if(targetH <= 0) return;
+    ctx.save();
+    if(flip){
+      ctx.translate(x + PIPE_W/2, targetH/2);
+      ctx.scale(1, -1);
+      ctx.drawImage(img, -PIPE_W/2, -targetH/2, PIPE_W, targetH);
+    } else {
+      ctx.drawImage(img, x, bottomHeight, PIPE_W, targetH);
+    }
+    ctx.restore();
+  }
+
+  function drawBlank(){
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,W,H);
+  }
+
+  // Init
+  resetGame();
+  checkReady();
+  showStart();
+})();
+</script>
+</body>
+</html>
