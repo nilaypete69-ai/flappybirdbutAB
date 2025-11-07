@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Flappy Bird — Single File (Custom Textures + Audio Only)</title>
+  <title>Flappy Bird — Server Assets + Animated Pipes (Balanced)</title>
   <style>
     :root { --ink:#0f172a; --ink2:#334155; --surface:#ffffff; --border:#e5e7eb; --soft:#f8fafc; --brand:#2563eb; --danger:#ef4444; }
     *{box-sizing:border-box}
@@ -12,16 +12,12 @@
     .wrap{margin:auto;display:grid;gap:14px;max-width:980px;width:100%;padding:16px}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:0 10px 24px rgba(2,6,23,.06);padding:14px}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    label.up{display:inline-flex;align-items:center;gap:8px;border:1px dashed #cbd5e1;border-radius:12px;padding:8px 10px;background:var(--soft);cursor:pointer}
-    input[type=file]{display:none}
     button{appearance:none;border:0;border-radius:12px;padding:10px 14px;font-weight:600;cursor:pointer;background:var(--brand);color:white}
-    button.secondary{background:#e2e8f0;color:var(--ink)}
     button.ghost{background:transparent;border:1px solid var(--border);color:var(--ink)}
-    button.danger{background:var(--danger)}
     .pill{padding:6px 10px;border-radius:999px;background:#f1f5f9;border:1px solid #e5e7eb}
 
     .stage{position:relative;display:grid;justify-items:center}
-    canvas{width:420px;height:560px;border-radius:16px;border:1px solid #e5e7eb;background:#000; /* stays black until a background texture is provided */}
+    canvas{width:420px;height:560px;border-radius:16px;border:1px solid #e5e7eb;background:#000}
     @media (max-width:480px){ canvas{width:92vw;height:auto} }
 
     .overlay{position:absolute;inset:8px;display:none;align-items:center;justify-content:center}
@@ -42,12 +38,11 @@
   <div class="wrap">
     <div class="card">
       <div class="row" style="justify-content:space-between">
-        <strong>Flappy Bird — Single File (Server-Hosted Assets)</strong>
+        <strong>Flappy Bird — Server Assets + Animated Pipes (Balanced)</strong>
         <div class="pill" id="status">Loading server assets…</div>
       </div>
       <div class="row controls">
-        <!-- No upload inputs. Assets are loaded from your server paths set in JS below. -->
-        <span style="font-size:12px;color:#334155">Set your asset URLs in the <code>ASSETS</code> object (JS) and deploy alongside this file.</span>
+        <span style="font-size:12px;color:#334155">Assets are loaded from the <code>ASSETS</code> object (server URLs). No upload buttons.</span>
         <span class="vol">
           <button id="muteBtn" class="ghost" style="pointer-events:auto">🔇 Mute</button>
           <input id="volume" type="range" min="0" max="100" value="80" />
@@ -68,7 +63,7 @@
       <div class="overlay" id="startOv">
         <div class="panel">
           <h2>Ready to Play</h2>
-          <p>Upload <em>bird, pipe, background, ground</em> textures. Audio is optional.</p>
+          <p>Uses your server-hosted textures & audio.</p>
           <div class="actions">
             <button id="playBtn">▶️ Play</button>
           </div>
@@ -79,7 +74,7 @@
       <div class="overlay" id="overOv">
         <div class="panel">
           <h2>Game Over</h2>
-          <p>Your score: <strong id="finalScore">0</strong></p>
+        <p>Your score: <strong id="finalScore">0</strong></p>
           <div class="actions">
             <button id="restartBtn">↻ Restart</button>
           </div>
@@ -88,7 +83,7 @@
     </div>
 
     <div class="card" style="font-size:12px;color:var(--ink2)">
-      Notes: This build follows strict rules — <strong>no default graphics or sounds</strong>. The canvas stays black and silent until you provide textures/audio. Assets are used locally via <code>URL.createObjectURL</code>; no network access needed.
+      Notes: Strict build — <strong>no default graphics or sounds</strong>. Canvas stays black/silent until server textures/audio are available. Pipes are animated from a sprite sheet and difficulty is tuned for fair gaps.
     </div>
   </div>
 
@@ -119,17 +114,33 @@
   $('#muteBtn').textContent = isMuted ? '🔊 Unmute' : '🔇 Mute';
 
   // ===== Asset URLs (configure these to your server paths) =====
-  // Example directory structure:
-  //   /assets/bird.png, /assets/pipe.png, /assets/bg.png, /assets/ground.png
-  //   /assets/bgm.mp3, /assets/gameover.mp3
   const ASSETS = {
-    bird:   'assets/bird.png',     // REQUIRED
-    pipe:   'assets/pipe.png',     // REQUIRED
-    bg:     'assets/bg.png',       // REQUIRED
-    ground: 'assets/ground.png',   // REQUIRED
-    bgm:    'assets/bgm.mp3',      // OPTIONAL but recommended
-    sfxOver:'assets/gameover.mp3'  // OPTIONAL but recommended
+    bird:   'assets/bird.png',         // REQUIRED
+    pipe:   'assets/pipe_sheet.png',   // REQUIRED (sprite sheet)
+    bg:     'assets/bg.png',           // REQUIRED
+    ground: 'assets/ground.png',       // REQUIRED
+    bgm:    'assets/bgm.mp3',          // OPTIONAL (loops during play)
+    sfxOver:'assets/gameover.mp3'      // OPTIONAL (on game over)
   };
+
+  // ===== Pipe animation config (sprite sheet) =====
+  // Provide a sheet with frames laid out horizontally by default.
+  const PIPE_FRAMES = 4;          // number of frames in your sheet
+  const PIPE_FPS    = 8;          // animation speed
+  const PIPE_LAYOUT = 'horizontal'; // 'horizontal' or 'vertical'
+
+  // ===== Difficulty / balance knobs =====
+  const GROUND_H     = 64;     // ground height in pixels on canvas
+  const PIPE_W       = 48;     // slimmer pipes for fairness
+  const PIPE_GAP     = 140;    // BIGGER opening (try 130–160)
+  const SCROLL_SPEED = 1.7;    // slightly slower to match gap
+  const GRAVITY      = 0.28;
+  const FLAP         = -5.2;
+
+  // Bird hitbox fairness (circle)
+  const BIRD_HITBOX  = 0.62;   // fraction of min(bird.w, bird.h)
+  // So fiery sprites don't "lick" the player unfairly:
+  const PIPE_SAFE_PAD = 6;     // trims a bit off collision rects
 
   // ===== Asset storage =====
   const assets = { bird:null, pipe:null, bg:null, ground:null, bgm:null, sfxOver:null };
@@ -168,23 +179,7 @@
     status(err.message, true);
   });
 
-  // No upload inputs in this build.
-
-  $('#birdFile').addEventListener('change', e=>loadImageFromFile(e.target,'bird'));
-  $('#pipeFile').addEventListener('change', e=>loadImageFromFile(e.target,'pipe'));
-  $('#bgFile').addEventListener('change',   e=>loadImageFromFile(e.target,'bg'));
-  $('#groundFile').addEventListener('change', e=>loadImageFromFile(e.target,'ground'));
-  $('#bgmFile').addEventListener('change', e=>loadAudioFromFile(e.target,'bgm'));
-  $('#sfxOverFile').addEventListener('change', e=>loadAudioFromFile(e.target,'sfxOver'));
-
-  $('#clearBtn').addEventListener('click', () => {
-    Object.keys(assets).forEach(k=>assets[k]=null);
-    status('Cleared assets');
-    stopAudio(true);
-    showStart();
-  });
-
-  // Volume + mute
+  // ===== Volume + mute =====
   $('#volume').addEventListener('input', e=>{
     masterVolume = Number(e.target.value)/100;
     localStorage.setItem(LS_VOL, String(masterVolume));
@@ -204,13 +199,6 @@
   }
 
   // ===== Game state =====
-  const GROUND_H = 64;        // ground height in pixels on canvas
-  const PIPE_W = 52;          // draw width for pipe
-  const PIPE_GAP = 92;        // vertical gap
-  const SCROLL_SPEED = 1.9;   // pipe/ground scroll speed (px/frame @ ~60fps)
-  const GRAVITY = 0.28;
-  const FLAP = -5.2;
-
   let state = null;
   function makeState(){
     return {
@@ -298,7 +286,8 @@
 
   // ===== Game mechanics =====
   function spawnPipes(){
-    const marginTop = 24, marginBottom = 24;
+    // safer margins so gaps aren't glued to ceiling/floor
+    const marginTop = 40, marginBottom = 40;
     const maxTop = H - GROUND_H - PIPE_GAP - marginBottom;
     const top = Math.floor(Math.random() * (maxTop - marginTop) + marginTop);
     state.pipes.push({ x: W + 10, top, passed:false });
@@ -312,11 +301,18 @@
   });
   canvas.addEventListener('pointerdown', flap);
 
+  // ===== Pipe animation timer =====
+  let pipeAnimTime = 0; // seconds
+  function currentPipeFrame(){
+    if(PIPE_FRAMES <= 1) return 0;
+    return Math.floor(pipeAnimTime * PIPE_FPS) % PIPE_FRAMES;
+  }
+
   // Loop
   let last=0, acc=0;
   function loop(ts){
-    const dt = Math.min(32, ts - last || 16);
-    last = ts; acc += dt;
+    const dtms = Math.min(32, ts - last || 16);
+    last = ts; acc += dtms;
     while(acc >= 16){ update(16/1000); acc -= 16; }
     draw();
     requestAnimationFrame(loop);
@@ -328,29 +324,29 @@
     hideOverlays();
     state.started = true;
     $('#scoreHud').style.display = 'inline-flex';
+    pipeAnimTime = 0;
     if(assets.bgm) playBgm();
   }
 
   function gameOver(){
     state.dead = true;
-    // Stop bgm first (fade or stop), then play over sfx
     fadeOutBgm(800).then(()=>{ playOverSfx(); });
     showOver();
-    // Best score update (kept minimal UI only, no graphics)
     localStorage.setItem('fb_best', String(Math.max(state.best, state.score)));
   }
 
   playBtn.addEventListener('click', ()=>{
     if(!(assets.bird && assets.pipe && assets.bg && assets.ground)){
-      status('Please upload all textures first.', true); return; }
+      status('Missing required textures on server.', true); return; }
     startGame();
   });
-  restartBtn.addEventListener('click', ()=>{
-    startGame();
-  });
+  restartBtn.addEventListener('click', ()=>{ startGame(); });
 
   function update(dt){
     if(!state || !state.started || state.dead) return;
+
+    // Advance pipe animation
+    pipeAnimTime += dt;
 
     // Spawn pipes ~1.45s
     state.spawnTimer += dt*1000;
@@ -370,11 +366,22 @@
     for(const p of state.pipes){
       const gapTop = p.top;
       const gapBottom = p.top + PIPE_GAP;
+
+      // Score when passing the pair
+      if(!p.passed && p.x + PIPE_W < state.bird.x){
+        p.passed = true; state.score++; $('#scoreHud').textContent = String(state.score);
+      }
+
+      // Circle vs rect collisions (fair hitbox)
       const bx = state.bird.x, by = state.bird.y, bw = state.bird.w, bh = state.bird.h;
-      // pass
-      if(!p.passed && p.x + PIPE_W < bx){ p.passed = true; state.score++; $('#scoreHud').textContent = String(state.score); }
-      // collide with top/bottom pipe
-      if(rectsOverlap(bx,by,bw,bh, p.x,0,PIPE_W,gapTop) || rectsOverlap(bx,by,bw,bh, p.x,gapBottom,PIPE_W,H-GROUND_H-gapBottom)){
+      const cx = bx + bw/2, cy = by + bh/2;
+      const r  = Math.min(bw, bh) * BIRD_HITBOX / 2;
+
+      const topRect = { x: p.x, y: 0, w: PIPE_W, h: gapTop - PIPE_SAFE_PAD };
+      const botRect = { x: p.x, y: gapBottom + PIPE_SAFE_PAD, w: PIPE_W, h: H - GROUND_H - (gapBottom + PIPE_SAFE_PAD) };
+
+      if (circleRectCollide(cx, cy, r, topRect.x, topRect.y, topRect.w, topRect.h) ||
+          circleRectCollide(cx, cy, r, botRect.x, botRect.y, botRect.w, botRect.h)) {
         gameOver();
       }
     }
@@ -386,18 +393,19 @@
     }
   }
 
-  function rectsOverlap(ax,ay,aw,ah, bx,by,bw,bh){
-    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  // Circle vs Rect collision helper
+  function circleRectCollide(cx, cy, r, rx, ry, rw, rh){
+    const nx = Math.max(rx, Math.min(cx, rx + rw));
+    const ny = Math.max(ry, Math.min(cy, ry + rh));
+    const dx = cx - nx, dy = cy - ny;
+    return (dx*dx + dy*dy) <= r*r;
   }
 
   // ===== Rendering (uses ONLY provided textures; no placeholders) =====
   function draw(){
     if(!state){ drawBlank(); return; }
-
-    // If any of the required textures are missing, keep canvas black and skip drawing.
     if(!(assets.bg && assets.ground && assets.pipe && assets.bird)){
-      drawBlank();
-      return;
+      drawBlank(); return;
     }
 
     // Background (tile image to fill)
@@ -406,9 +414,7 @@
 
     // Pipes
     for(const p of state.pipes){
-      // top (flip vertically by scaling)
       drawPipeImage(p.x, p.top, true);
-      // bottom
       drawPipeImage(p.x, H - GROUND_H - (H - GROUND_H - (p.top + PIPE_GAP)), false, H - GROUND_H - (p.top + PIPE_GAP));
     }
 
@@ -428,15 +434,25 @@
 
   function drawPipeImage(x, topHeight, flip=false, bottomHeight=topHeight){
     const img = assets.pipe; if(!img) return;
+    // Determine source frame from sprite sheet
+    let sw, sh, sx, sy;
+    if(PIPE_LAYOUT === 'vertical'){
+      sw = img.width; sh = img.height / Math.max(1, PIPE_FRAMES);
+      sx = 0; sy = currentPipeFrame() * sh;
+    } else { // horizontal
+      sw = img.width / Math.max(1, PIPE_FRAMES); sh = img.height;
+      sx = currentPipeFrame() * sw; sy = 0;
+    }
+
     const targetH = flip ? topHeight : (H - GROUND_H - (bottomHeight));
     if(targetH <= 0) return;
     ctx.save();
     if(flip){
       ctx.translate(x + PIPE_W/2, targetH/2);
       ctx.scale(1, -1);
-      ctx.drawImage(img, -PIPE_W/2, -targetH/2, PIPE_W, targetH);
+      ctx.drawImage(img, sx, sy, sw, sh, -PIPE_W/2, -targetH/2, PIPE_W, targetH);
     } else {
-      ctx.drawImage(img, x, bottomHeight, PIPE_W, targetH);
+      ctx.drawImage(img, sx, sy, sw, sh, x, bottomHeight, PIPE_W, targetH);
     }
     ctx.restore();
   }
